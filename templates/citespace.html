@@ -1,0 +1,183 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="page-container">
+    <h1>学术文献知识图谱可视化系统</h1>
+    <p class="subtitle">基于关系网络、作者合作、关键词共现、时序演进分析 | 仿CiteSpace风格</p>
+
+    <!-- 数据上传区域 -->
+    <div class="upload-card">
+        <h2>📁 数据上传（CSV专用）</h2>
+        <div class="upload-area">
+            <input type="file" id="fileInput" accept=".csv" class="file-input">
+            <button id="uploadBtn" class="upload-btn">上传并开始分析</button>
+        </div>
+        <div id="msgBox" class="msg-box"></div>
+    </div>
+
+    <!-- 系统功能区域 -->
+    <div class="func-card">
+        <h2>📌 系统功能</h2>
+        <div class="func-grid">
+            <a href="/network" class="func-item">
+                <div class="func-title">作者合作网络</div>
+                <div class="func-desc">聚类·中心性·关联</div>
+            </a>
+            <a href="/network" class="func-item">
+                <div class="func-title">关键词共现</div>
+                <div class="func-desc">热点·强度·聚类</div>
+            </a>
+            <a href="/timeline" class="func-item">
+                <div class="func-title">时序演进</div>
+                <div class="func-desc">年度趋势·前沿探测</div>
+            </a>
+            <a href="/statistics" class="func-item">
+                <div class="func-title">统计分析</div>
+                <div class="func-desc">作者·来源·词云</div>
+            </a>
+        </div>
+    </div>
+</div>
+
+<script>
+// 🔴 核心修复：确保DOM加载完成后再绑定事件
+document.addEventListener('DOMContentLoaded', function() {
+    // 1. 获取元素
+    const fileInput = document.getElementById('fileInput');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const msgBox = document.getElementById('msgBox');
+
+    // 2. 绑定上传按钮点击事件（确保绑定成功）
+    uploadBtn.addEventListener('click', function() {
+        // 检查是否选择了文件
+        if (!fileInput.files || fileInput.files.length === 0) {
+            msgBox.innerHTML = '<span style="color: #e53e3e;">请先选择CSV文件！</span>';
+            return;
+        }
+
+        const file = fileInput.files[0];
+        if (!file.name.endsWith('.csv')) {
+            msgBox.innerHTML = '<span style="color: #e53e3e;">仅支持CSV格式文件！</span>';
+            return;
+        }
+
+        // 3. 创建FormData，发起上传请求
+        const formData = new FormData();
+        formData.append('file', file);
+
+        msgBox.innerHTML = '<span style="color: #63b3ed;">正在上传，请稍候...</span>';
+
+        fetch('/api/upload', {
+            method: 'POST',
+            body: formData,
+            // 🔴 关键：不设置Content-Type，让浏览器自动处理
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+        .then(res => {
+            if (!res.ok) {
+                return res.json().then(err => { throw new Error(err.error || '服务器错误'); });
+            }
+            return res.json();
+        })
+        .then(data => {
+            if (data.success) {
+                // 🔴 核心：上传成功后，保存filename到localStorage
+                localStorage.setItem('filename', data.filename);
+                msgBox.innerHTML = `<span style="color: #48bb78;">${data.msg}</span>`;
+                // 可选：上传成功后自动跳转到指标分析页
+                // window.location.href = '/metrics';
+            } else {
+                msgBox.innerHTML = `<span style="color: #e53e3e;">${data.error}</span>`;
+            }
+        })
+        .catch(err => {
+            console.error('上传失败:', err);
+            msgBox.innerHTML = `<span style="color: #e53e3e;">网络错误: ${err.message}</span>`;
+        });
+    });
+
+    // 4. 给文件选择框添加样式反馈
+    fileInput.addEventListener('change', function() {
+        if (this.files && this.files.length > 0) {
+            msgBox.innerHTML = `<span style="color: #63b3ed;">已选择文件: ${this.files[0].name}</span>`;
+        } else {
+            msgBox.innerHTML = '';
+        }
+    });
+});
+</script>
+
+<style>
+.page-container { max-width: 1400px; margin: 0 auto; padding: 30px 20px; text-align: center; }
+h1 { color: #fff; font-size: 36px; margin-bottom: 10px; }
+.subtitle { color: #ccc; font-size: 18px; margin-bottom: 40px; }
+
+/* 上传卡片样式 */
+.upload-card {
+    background: #2d3748;
+    border-radius: 12px;
+    padding: 30px;
+    margin-bottom: 30px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    text-align: left;
+}
+.upload-card h2 { color: #63b3ed; font-size: 28px; margin-bottom: 20px; }
+.upload-area {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+}
+.file-input {
+    flex: 1;
+    padding: 12px;
+    background: #1a202c;
+    border: 1px solid #4a5568;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 16px;
+}
+.upload-btn {
+    padding: 12px 30px;
+    background: #2b6cb0;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 18px;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+.upload-btn:hover { background: #2c5282; }
+.msg-box { margin-top: 15px; font-size: 16px; min-height: 24px; }
+
+/* 功能卡片样式 */
+.func-card {
+    background: #2d3748;
+    border-radius: 12px;
+    padding: 30px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    text-align: left;
+}
+.func-card h2 { color: #63b3ed; font-size: 28px; margin-bottom: 20px; }
+.func-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+}
+.func-item {
+    background: #1a202c;
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+    text-decoration: none;
+    border: 1px solid #4a5568;
+    transition: all 0.3s;
+}
+.func-item:hover {
+    border-color: #63b3ed;
+    transform: translateY(-3px);
+}
+.func-title { color: #fff; font-size: 22px; font-weight: bold; margin-bottom: 8px; }
+.func-desc { color: #ccc; font-size: 16px; }
+</style>
+{% endblock %}

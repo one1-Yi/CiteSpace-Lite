@@ -1,0 +1,217 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="page-container">
+    <h1>⏳ 文献时序演进与年度趋势</h1>
+    <!-- 柱状图容器 -->
+    <div id="yearChart" class="chart-container"></div>
+
+    <h2>🔍 年度热点演进词云（自动循环切换）</h2>
+    <div class="year-selector">
+        <button id="prevYear" class="year-btn">← 上一年</button>
+        <span id="currentYear" class="year-text">2025</span>
+        <button id="nextYear" class="year-btn">下一年 →</button>
+        <button id="exportYearCloud" class="year-btn export">💾 导出词云图片</button>
+    </div>
+    <!-- 词云容器 -->
+    <div id="kwCloudChart" class="chart-container"></div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const filename = localStorage.getItem('filename');
+    if (!filename) {
+        alert('请先在首页上传文献数据！');
+        window.location.href = '/';
+        return;
+    }
+
+    // 初始化图表
+    const yearChart = echarts.init(document.getElementById('yearChart'));
+    const kwCloudChart = echarts.init(document.getElementById('kwCloudChart'));
+
+    // 元素获取
+    const currentYearEl = document.getElementById('currentYear');
+    const prevYearBtn = document.getElementById('prevYear');
+    const nextYearBtn = document.getElementById('nextYear');
+    const exportYearCloud = document.getElementById('exportYearCloud');
+
+    let yearData = {};
+    let yearKwData = {};
+    let currentYearIndex = 0;
+    let yearList = [];
+    // 🔴 核心：自动轮播定时器（页面加载后自动启动）
+    let autoTimer = null;
+    const AUTO_PLAY_INTERVAL = 1800; // 轮播间隔1.8秒，可自行调整
+
+    // 1. 先请求年度统计数据，渲染柱状图（绑定点击事件）
+    fetch(`/api/stats?f=${encodeURIComponent(filename)}`)
+    .then(res => res.json())
+    .then(statsData => {
+        const yearEntries = Object.entries(statsData.year);
+        yearList = yearEntries.map(item => item[0]);
+        yearData = statsData.year;
+
+        // 柱状图配置
+        const yearOption = {
+            tooltip: {
+                trigger: 'axis',
+                axisPointer: { type: 'shadow' },
+                confine: true
+            },
+            xAxis: {
+                type: 'category',
+                data: yearList,
+                axisLabel: { color: '#fff' }
+            },
+            yAxis: {
+                type: 'value',
+                name: '发文量-篇',
+                nameTextStyle: { color: '#fff' },
+                axisLabel: { color: '#fff' },
+                splitLine: { lineStyle: { color: '#4a5568' } }
+            },
+            series: [{
+                data: yearEntries.map(item => item[1]),
+                type: 'bar',
+                itemStyle: {
+                    color: '#5499c7',
+                    emphasis: { focus: 'series' }
+                },
+                barWidth: '60%'
+            }],
+            backgroundColor: '#2d3748'
+        };
+
+        yearChart.setOption(yearOption);
+
+        // 绑定柱状图点击跳转事件
+        yearChart.on('click', function(params) {
+            if (params.componentType === 'series') {
+                const year = params.name;
+                window.location.href = `/list?year=${encodeURIComponent(year)}`;
+            }
+        });
+
+        // 2. 再请求全量文献，统计关键词
+        return fetch(`/api/papers?f=${encodeURIComponent(filename)}`);
+    })
+    .then(res => res.json())
+    .then(papers => {
+        papers.forEach(paper => {
+            const year = paper['PubTime-发表时间']?.toString().slice(0,4);
+            if (!year || !/^(19|20)\d{2}$/.test(year)) return;
+
+            const kws = paper['Keyword-关键词']?.split(/[;,，；]/) || [];
+            kws.forEach(kw => {
+                kw = kw.trim();
+                if (!kw) return;
+                if (!yearKwData[year]) yearKwData[year] = {};
+                yearKwData[year][kw] = (yearKwData[year][kw] || 0) + 1;
+            });
+        });
+
+        // 🔴 核心：页面加载完成后，自动启动轮播
+        currentYearIndex = 0;
+        updateYearCloud();
+        startAutoPlay();
+    })
+    .catch(err => {
+        console.error('时序数据请求失败:', err);
+        alert('数据加载失败，请检查文件是否正确上传');
+    });
+
+    // 更新年度词云
+    function updateYearCloud() {
+        if (yearList.length === 0) return;
+        const year = yearList[currentYearIndex];
+        currentYearEl.textContent = year;
+
+        const kwEntries = Object.entries(yearKwData[year] || {}).sort((a, b) => b[1] - a[1]).slice(0, 30);
+        const kwData = kwEntries.map(([name, value]) => ({name, value}));
+
+        const option = {
+            tooltip: { show: true },
+            series: [{
+                type: 'wordCloud',
+                shape: 'circle',
+                gridSize: 8,
+                sizeRange: [12, 60],
+                rotationRange: [-90, 90],
+                textStyle: {
+                    color: () => `rgb(${Math.round(Math.random() * 255)},${Math.round(Math.random() * 255)},${Math.round(Math.random() * 255)})`
+                },
+                data: kwData
+            }]
+        };
+        kwCloudChart.setOption(option);
+
+        prevYearBtn.disabled = currentYearIndex === 0;
+        nextYearBtn.disabled = currentYearIndex === yearList.length - 1;
+    }
+
+    // 🔴 核心：启动自动轮播
+    function startAutoPlay() {
+        // 先清除已有定时器，避免重复轮播
+        if (autoTimer) clearInterval(autoTimer);
+        autoTimer = setInterval(() => {
+            // 循环切换：到最后一年后回到第一年
+            currentYearIndex = (currentYearIndex + 1) % yearList.length;
+            updateYearCloud();
+        }, AUTO_PLAY_INTERVAL);
+    }
+
+    // 手动切换年份时，重置轮播定时器
+    prevYearBtn.addEventListener('click', () => {
+        if (currentYearIndex > 0) {
+            currentYearIndex--;
+            updateYearCloud();
+            startAutoPlay(); // 重置轮播
+        }
+    });
+
+    nextYearBtn.addEventListener('click', () => {
+        if (currentYearIndex < yearList.length - 1) {
+            currentYearIndex++;
+            updateYearCloud();
+            startAutoPlay(); // 重置轮播
+        }
+    });
+
+    // 导出年度词云图片
+    exportYearCloud.addEventListener('click', () => {
+        const url = kwCloudChart.getDataURL({
+            type: 'png',
+            pixelRatio: 2,
+            backgroundColor: '#2d3748'
+        });
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = '年度热点词云_' + currentYearEl.textContent + '.png';
+        a.click();
+    });
+
+    // 窗口大小变化时，重新渲染图表
+    window.addEventListener('resize', () => {
+        yearChart.resize();
+        kwCloudChart.resize();
+    });
+
+    // 页面离开时，清除定时器，避免内存泄漏
+    window.addEventListener('beforeunload', () => {
+        if (autoTimer) clearInterval(autoTimer);
+    });
+});
+</script>
+
+<style>
+.page-container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+h1 { color: #63b3ed; font-size: 28px; margin-bottom: 20px; }
+h2 { color: #63b3ed; font-size: 24px; margin: 30px 0 20px; }
+.chart-container { width: 100%; height: 500px; background: #2d3748; border-radius: 8px; }
+.year-selector { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 15px; flex-wrap:wrap; }
+.year-btn { padding: 8px 14px; background: #2b6cb0; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size:14px; }
+.year-btn.export { background: #d69e2e; }
+.year-btn:disabled { background: #4a5568; cursor: not-allowed; }
+.year-text { font-size: 18px; color: #fff; font-weight: bold; min-width:60px; text-align:center; }
+</style>
+{% endblock %}

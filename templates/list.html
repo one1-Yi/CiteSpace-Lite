@@ -1,0 +1,225 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="page-container">
+    <h1>📄 文献列表与检索</h1>
+
+    <!-- 检索区域：关键词 + 年份筛选 -->
+    <div class="search-area">
+        <input type="text" id="searchInput" placeholder="输入标题/作者/关键词检索文献..." class="search-input">
+        <select id="yearSelect" class="year-select">
+            <option value="">全部年份</option>
+        </select>
+        <button id="searchBtn" class="search-btn">检索</button>
+    </div>
+
+    <!-- 文献列表表格 -->
+    <div class="table-container">
+        <table id="paperTable">
+            <thead>
+                <tr>
+                    <th>序号</th>
+                    <th>标题</th>
+                    <th>作者</th>
+                    <th>发表时间</th>
+                    <th>来源</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody">
+                <!-- 数据由JS动态加载 -->
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const filename = localStorage.getItem('filename');
+    if (!filename) {
+        alert('请先在首页上传文献数据！');
+        window.location.href = '/';
+        return;
+    }
+
+    const searchInput = document.getElementById('searchInput');
+    const yearSelect = document.getElementById('yearSelect');
+    const searchBtn = document.getElementById('searchBtn');
+    const tableBody = document.getElementById('tableBody');
+
+    let allPapers = [];
+    let yearList = [];
+
+    // 1. 获取所有文献数据
+    fetch(`/api/papers?f=${encodeURIComponent(filename)}`)
+    .then(res => res.json())
+    .then(papers => {
+        allPapers = papers;
+
+        // 2. 提取所有年份，填充下拉框
+        yearList = [...new Set(papers.map(p => {
+            const pubTime = p['PubTime-发表时间'] || '';
+            return pubTime.toString().slice(0,4);
+        }).filter(y => /^(19|20)\d{2}$/.test(y)))];
+
+        // 按年份排序
+        yearList.sort();
+        yearList.forEach(y => {
+            const opt = document.createElement('option');
+            opt.value = y;
+            opt.textContent = y;
+            yearSelect.appendChild(opt);
+        });
+
+        // 🔴 核心修复1：从URL获取年份参数，自动筛选
+        const urlParams = new URLSearchParams(window.location.search);
+        const targetYear = urlParams.get('year');
+        if (targetYear) {
+            yearSelect.value = targetYear;
+            // 自动执行检索，显示对应年份文献
+            renderTable(filterByYearAndKeyword(allPapers, targetYear, ''));
+        } else {
+            // 初始渲染全部文献
+            renderTable(papers);
+        }
+
+        // 3. 初始渲染表格（如果没有URL参数）
+        if (!targetYear) {
+            renderTable(papers);
+        }
+    })
+    .catch(err => {
+        console.error('文献数据加载失败:', err);
+        alert('数据加载失败，请检查文件是否正确上传');
+    });
+
+    // 🔴 核心：新增筛选函数
+    function filterByYearAndKeyword(papers, year, keyword) {
+        return papers.filter(p => {
+            const pubYear = p['PubTime-发表时间']?.toString().slice(0,4) || '';
+            const title = p['Title-题名']?.toLowerCase() || '';
+            const author = p['Author-作者']?.toLowerCase() || '';
+            const kw = p['Keyword-关键词']?.toLowerCase() || '';
+
+            // 年份筛选
+            const yearMatch = !year || pubYear === year;
+            // 关键词筛选
+            const kwMatch = !keyword || title.includes(keyword) || author.includes(keyword) || kw.includes(keyword);
+            return yearMatch && kwMatch;
+        });
+    }
+
+    // 渲染表格函数
+    function renderTable(papers) {
+        tableBody.innerHTML = '';
+        if (papers.length === 0) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td colspan="5" style="text-align:center;color:#ccc;">暂无符合条件的文献</td>';
+            tableBody.appendChild(tr);
+            return;
+        }
+
+        papers.forEach((p, idx) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${idx + 1}</td>
+                <td>${p['Title-题名'] || ''}</td>
+                <td>${p['Author-作者'] || ''}</td>
+                <td>${p['PubTime-发表时间'] || ''}</td>
+                <td>${p['Source-文献来源'] || ''}</td>
+            `;
+            tableBody.appendChild(tr);
+        });
+    }
+
+    // 🔴 核心：检索按钮点击事件（关键词 + 年份双筛选）
+    searchBtn.addEventListener('click', () => {
+        const keyword = searchInput.value.trim().toLowerCase();
+        const selectedYear = yearSelect.value;
+
+        const filtered = filterByYearAndKeyword(allPapers, selectedYear, keyword);
+        renderTable(filtered);
+    });
+
+    // 回车触发检索
+    searchInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            searchBtn.click();
+        }
+    });
+
+    // 年份选择变化时自动检索
+    yearSelect.addEventListener('change', () => {
+        searchBtn.click();
+    });
+});
+</script>
+
+<style>
+.page-container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+h1 { color: #63b3ed; font-size: 28px; margin-bottom: 20px; }
+
+/* 检索区域样式 */
+.search-area {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.search-input {
+    flex: 1;
+    min-width: 300px;
+    padding: 12px;
+    background: #1a202c;
+    border: 1px solid #4a5568;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 16px;
+}
+.year-select {
+    padding: 12px;
+    background: #1a202c;
+    border: 1px solid #4a5568;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 16px;
+    min-width: 120px;
+}
+.search-btn {
+    padding: 12px 24px;
+    background: #2b6cb0;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 18px;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+.search-btn:hover { background: #2c5282; }
+
+/* 表格样式 */
+.table-container {
+    background: #2d3748;
+    border-radius: 8px;
+    padding: 20px;
+    overflow-x: auto;
+}
+#paperTable {
+    width: 100%;
+    border-collapse: collapse;
+    color: #fff;
+}
+#paperTable th, #paperTable td {
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 1px solid #4a5568;
+}
+#paperTable th {
+    background: #1a202c;
+    color: #63b3ed;
+    font-size: 16px;
+}
+#paperTable tr:hover {
+    background: #3a4658;
+}
+</style>
+{% endblock %}

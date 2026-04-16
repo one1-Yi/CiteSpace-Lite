@@ -1,0 +1,318 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="page-container">
+    <h1>🧠 LDA 智能主题聚类分析</h1>
+
+    <!-- 导出报告按钮（新增） -->
+    <div class="export-btn-container">
+        <button id="exportReportBtn" class="export-btn">📄 导出主题分析报告</button>
+    </div>
+
+    <!-- 1. 主题卡片展示（原有功能保留） -->
+    <div class="lda-card" id="topicCards"></div>
+
+    <!-- 2. 主题-年份热力图（原有功能） -->
+    <h2>📈 主题-年份热度演变热力图</h2>
+    <div id="heatmapChart" class="chart-container"></div>
+
+    <!-- 3. 主题词云切换（原有功能） -->
+    <h2>☁️ 主题词云可视化</h2>
+    <div class="topic-cloud-selector">
+        <select id="topicCloudSelect" class="topic-select"></select>
+    </div>
+    <div id="topicCloudChart" class="chart-container"></div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', async function () {
+    const filename = localStorage.getItem('filename');
+    if (!filename) {
+        alert('请先上传文献');
+        window.location.href = '/';
+        return;
+    }
+
+    // 全局存储主题数据，用于导出
+    let globalTopics = [];
+    let globalYears = [];
+    let globalTopicYearHeat = {};
+
+    // 1. 获取LDA主题数据 + 全量文献数据
+    const [ldaRes, papersRes] = await Promise.all([
+        fetch(`/api/lda?f=${encodeURIComponent(filename)}`),
+        fetch(`/api/papers?f=${encodeURIComponent(filename)}`)
+    ]);
+    const ldaData = await ldaRes.json();
+    const allPapers = await papersRes.json();
+
+    globalTopics = ldaData.topics;
+
+    // 2. 渲染主题卡片（原有功能，新增点击跳转）
+    const topicCards = document.getElementById('topicCards');
+    const topics = ldaData.topics;
+    topicCards.innerHTML = topics.map((t, idx) => `
+        <div class="topic-box" data-topic="${idx}">
+            <h3>${t.topic}</h3>
+            <div class="words">
+                ${t.words.map(w => `<span class="word">${w}</span>`).join('')}
+            </div>
+            <button class="view-papers-btn" data-topic="${idx}">查看该主题文献</button>
+        </div>
+    `).join('');
+
+    // 3. 绑定主题文献跳转事件
+    document.querySelectorAll('.view-papers-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const topicIdx = this.dataset.topic;
+            const topicWords = topics[topicIdx].words;
+            const searchKw = topicWords.slice(0, 3).join(' ');
+            window.location.href = `/list?wd=${encodeURIComponent(searchKw)}`;
+        });
+    });
+
+    // 4. 计算主题-年份热度数据（用于热力图）
+    const yearSet = new Set();
+    const topicYearHeat = {};
+    topics.forEach((t, idx) => {
+        topicYearHeat[idx] = {};
+        t.words.forEach(word => {
+            allPapers.forEach(p => {
+                const pubTime = p['PubTime-发表时间'] || '';
+                const year = pubTime.toString().slice(0,4);
+                if (!year || !/^(19|20)\d{2}$/.test(year)) return;
+                yearSet.add(year);
+                const kw = p['Keyword-关键词'] || '';
+                if (kw.includes(word)) {
+                    topicYearHeat[idx][year] = (topicYearHeat[idx][year] || 0) + 1;
+                }
+            });
+        });
+    });
+
+    globalYears = Array.from(yearSet).sort();
+    globalTopicYearHeat = topicYearHeat;
+
+    const years = globalYears;
+    const heatmapData = [];
+    const xAxisData = years;
+    const yAxisData = topics.map(t => t.topic);
+
+    yAxisData.forEach((y, yIdx) => {
+        xAxisData.forEach((x, xIdx) => {
+            heatmapData.push([xIdx, yIdx, topicYearHeat[yIdx][x] || 0]);
+        });
+    });
+
+    // 5. 渲染热力图
+    const heatmapChart = echarts.init(document.getElementById('heatmapChart'));
+    const heatmapOption = {
+        tooltip: {
+            formatter: params => `${yAxisData[params.value[1]]}<br/>${xAxisData[params.value[0]]}<br/>热度: ${params.value[2]}`
+        },
+        xAxis: {
+            type: 'category',
+            data: xAxisData,
+            axisLabel: { color: '#fff' }
+        },
+        yAxis: {
+            type: 'category',
+            data: yAxisData,
+            axisLabel: { color: '#fff' }
+        },
+        visualMap: {
+            min: 0,
+            max: Math.max(...heatmapData.map(d => d[2])),
+            calculable: true,
+            inRange: {
+                color: ['#2d3748', '#5499c7', '#f56565']
+            },
+            textStyle: { color: '#fff' }
+        },
+        series: [{
+            type: 'heatmap',
+            data: heatmapData,
+            label: {
+                show: true,
+                color: '#fff'
+            }
+        }],
+        backgroundColor: '#2d3748'
+    };
+    heatmapChart.setOption(heatmapOption);
+
+    // 6. 渲染主题词云
+    const topicCloudSelect = document.getElementById('topicCloudSelect');
+    const topicCloudChart = echarts.init(document.getElementById('topicCloudChart'));
+
+    topics.forEach((t, idx) => {
+        const opt = document.createElement('option');
+        opt.value = idx;
+        opt.textContent = t.topic;
+        topicCloudSelect.appendChild(opt);
+    });
+
+    function renderTopicCloud(topicIdx) {
+        const topic = topics[topicIdx];
+        const kwData = topic.words.map((w, i) => ({
+            name: w,
+            value: topic.words.length - i
+        }));
+
+        const option = {
+            tooltip: { show: true },
+            series: [{
+                type: 'wordCloud',
+                shape: 'circle',
+                gridSize: 8,
+                sizeRange: [12, 60],
+                rotationRange: [-90, 90],
+                textStyle: {
+                    color: () => `rgb(${Math.round(Math.random() * 255)},${Math.round(Math.random() * 255)},${Math.round(Math.random() * 255)})`
+                },
+                data: kwData
+            }]
+        };
+        topicCloudChart.setOption(option);
+    }
+
+    renderTopicCloud(0);
+
+    topicCloudSelect.addEventListener('change', function() {
+        renderTopicCloud(this.value);
+    });
+
+    // 🔴 核心：导出主题分析报告功能（新增）
+    document.getElementById('exportReportBtn').addEventListener('click', function() {
+        // 1. 生成报告内容（Markdown格式，可直接用于论文）
+        let reportContent = `# LDA主题聚类分析报告\n\n`;
+        reportContent += `## 一、分析概述\n`;
+        reportContent += `本报告基于${allPapers.length}篇文献，通过LDA主题模型自动聚类出${topics.length}个研究主题，涵盖主题关键词、年度热度演变等分析内容。\n\n`;
+
+        // 2. 主题详情
+        reportContent += `## 二、主题详情\n\n`;
+        topics.forEach((t, idx) => {
+            reportContent += `### ${t.topic}\n`;
+            reportContent += `**核心关键词**：${t.words.join('、')}\n\n`;
+            reportContent += `**年度热度分布**：\n`;
+            globalYears.forEach(year => {
+                const heat = globalTopicYearHeat[idx][year] || 0;
+                reportContent += `- ${year}年：${heat}次\n`;
+            });
+            reportContent += `\n`;
+        });
+
+        // 3. 主题-年份热度总结
+        reportContent += `## 三、主题热度演变总结\n\n`;
+        topics.forEach((t, idx) => {
+            const totalHeat = globalYears.reduce((sum, year) => sum + (globalTopicYearHeat[idx][year] || 0), 0);
+            reportContent += `- ${t.topic}：总热度${totalHeat}，平均每年${(totalHeat / globalYears.length).toFixed(2)}次\n`;
+        });
+
+        // 4. 生成下载文件
+        const blob = new Blob([reportContent], { type: 'text/markdown;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `LDA主题分析报告_${new Date().toLocaleDateString()}.md`;
+        a.click();
+        URL.revokeObjectURL(url);
+
+        alert('报告导出成功！已保存为Markdown文件，可直接用于论文写作');
+    });
+
+    // 窗口大小变化时，重新渲染图表
+    window.addEventListener('resize', () => {
+        heatmapChart.resize();
+        topicCloudChart.resize();
+    });
+});
+</script>
+
+<style>
+.page-container { max-width:1400px; margin:0 auto; padding:20px; }
+h1 { color:#63b3ed; font-size:28px; margin-bottom:24px; }
+h2 { color:#63b3ed; font-size:24px; margin:30px 0 20px; }
+
+/* 导出按钮样式（新增） */
+.export-btn-container {
+    text-align: right;
+    margin-bottom:20px;
+}
+.export-btn {
+    padding:10px 20px;
+    background:#d69e2e;
+    color:#fff;
+    border:none;
+    border-radius:8px;
+    font-size:16px;
+    cursor:pointer;
+    transition: background 0.3s;
+}
+.export-btn:hover {
+    background:#c28920;
+}
+
+/* 主题卡片样式 */
+.lda-card { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:30px; }
+.topic-box {
+    background:#2d3748;
+    padding:22px;
+    border-radius:10px;
+    border:1px solid #4a5568;
+}
+.topic-box h3 {
+    color:#63b3ed;
+    margin-bottom:16px;
+    font-size:20px;
+}
+.words {
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+    margin-bottom:16px;
+}
+.word {
+    background:#1a202c;
+    color:#fff;
+    padding:6px 12px;
+    border-radius:6px;
+    font-size:14px;
+}
+.view-papers-btn {
+    width:100%;
+    padding:8px 12px;
+    background:#2b6cb0;
+    color:#fff;
+    border:none;
+    border-radius:6px;
+    cursor:pointer;
+    font-size:14px;
+}
+.view-papers-btn:hover { background:#2c5282; }
+
+/* 图表容器样式 */
+.chart-container {
+    width:100%;
+    height:500px;
+    background:#2d3748;
+    border-radius:8px;
+    margin-bottom:20px;
+}
+
+/* 主题词云选择器样式 */
+.topic-cloud-selector {
+    display:flex;
+    justify-content:center;
+    margin-bottom:15px;
+}
+.topic-select {
+    padding:8px 16px;
+    background:#1a202c;
+    border:1px solid #4a5568;
+    border-radius:6px;
+    color:#fff;
+    font-size:16px;
+    min-width:200px;
+}
+</style>
+{% endblock %}

@@ -1,0 +1,249 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="page-container">
+    <h1>📊 统计分析</h1>
+
+    <div class="stats-row">
+        <div class="chart-card">
+            <h3>高产作者 TOP15</h3>
+            <div id="authorChart" class="chart-inner"></div>
+        </div>
+        <div class="chart-card">
+            <h3>文献来源 TOP15</h3>
+            <div id="sourceChart" class="chart-inner"></div>
+        </div>
+    </div>
+
+    <div class="stats-row">
+        <div class="chart-card full-width">
+            <div class="tab-buttons">
+                <button class="tab-btn active" data-chart="bar">柱状图</button>
+                <button class="tab-btn" data-chart="pie">环形图</button>
+                <button class="tab-btn" data-chart="radar">雷达图</button>
+            </div>
+            <h3>被引文献 TOP</h3>
+            <div id="citeChart" class="chart-inner"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const filename = localStorage.getItem('filename');
+    if (!filename) {
+        alert('请先上传文件');
+        location.href = '/';
+        return;
+    }
+
+    const authorChart = echarts.init(document.getElementById('authorChart'));
+    const sourceChart = echarts.init(document.getElementById('sourceChart'));
+    let citeChart = echarts.init(document.getElementById('citeChart'));
+
+    let globalCiteData = [];
+    let currentChartType = 'bar';
+
+    window.addEventListener('resize', () => {
+        authorChart.resize();
+        sourceChart.resize();
+        citeChart.dispose();
+        citeChart = echarts.init(document.getElementById('citeChart'));
+        renderCurrentChart();
+    });
+
+    fetch(`/api/stats?f=${encodeURIComponent(filename)}`)
+        .then(res => res.json())
+        .then(data => {
+            //------------------------------
+            // 1. 高产作者（干净清爽版）
+            //------------------------------
+            const authorData = Object.entries(data.authors || {})
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 15)
+                .reverse();
+
+            authorChart.setOption({
+                backgroundColor: '#2d3748',
+                tooltip: {
+                    trigger: 'axis',
+                    formatter: '{b}<br/>发文量：{c} 篇'
+                },
+                grid: { left: '15%', right: '5%', top: '5%', bottom: '5%' },
+                xAxis: {
+                    type: 'value',
+                    min: 0,
+                    minInterval: 1,
+                    axisLabel: { color: '#fff' },
+                    splitLine: { lineStyle: { color: '#4a5568' } }
+                },
+                yAxis: {
+                    type: 'category',
+                    data: authorData.map(item => item[0]),
+                    axisLabel: { color: '#fff', fontSize: 12 }
+                },
+                series: [{
+                    data: authorData.map(item => item[1]),
+                    type: 'bar',
+                    itemStyle: { color: '#e74c3c' },
+                    label: { show: true, position: 'right', color: '#fff' }
+                }]
+            });
+
+            //------------------------------
+            // 2. 文献来源（干净清爽版）
+            //------------------------------
+            const sourceData = Object.entries(data.sources || {})
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 15)
+                .reverse();
+
+            sourceChart.setOption({
+                backgroundColor: '#2d3748',
+                tooltip: {
+                    trigger: 'axis',
+                    formatter: '{b}<br/>载文量：{c} 篇'
+                },
+                grid: { left: '20%', right: '5%', top: '5%', bottom: '5%' },
+                xAxis: {
+                    type: 'value',
+                    min: 0,
+                    minInterval: 1,
+                    axisLabel: { color: '#fff' },
+                    splitLine: { lineStyle: { color: '#4a5568' } }
+                },
+                yAxis: {
+                    type: 'category',
+                    data: sourceData.map(item => item[0]),
+                    axisLabel: { color: '#fff', fontSize: 12 }
+                },
+                series: [{
+                    data: sourceData.map(item => item[1]),
+                    type: 'bar',
+                    itemStyle: { color: '#f39c12' },
+                    label: { show: true, position: 'right', color: '#fff' }
+                }]
+            });
+
+            //------------------------------
+            // 3. 被引文献（干净清爽版）
+            //------------------------------
+            globalCiteData = Object.entries(data.citations || {})
+                .filter(([k]) => k && k.trim() && k.toLowerCase() !== 'nan')
+                .sort((a, b) => b[1] - a[1])
+                .map(([title, cnt]) => {
+                    const short = title.length > 18 ? title.slice(0, 14) + '...' : title;
+                    return [short, cnt, title];
+                });
+
+            renderChart('bar');
+        });
+
+    function renderChart(type) {
+        currentChartType = type;
+        citeChart.dispose();
+        citeChart = echarts.init(document.getElementById('citeChart'));
+
+        if (globalCiteData.length === 0) return;
+        const top20 = globalCiteData.slice(0, 20);
+        const top10 = globalCiteData.slice(0, 10);
+        const top8 = globalCiteData.slice(0, 8);
+
+        let opt;
+        if (type === 'bar') {
+            opt = {
+                backgroundColor: '#2d3748',
+                tooltip: {
+                    trigger: 'axis',
+                    formatter: params => `${top20[params.dataIndex][2]}<br/>被引：${params.value} 次`
+                },
+                grid: { left: 20, right: 20, top: 30, bottom: 100 },
+                xAxis: {
+                    type: 'category',
+                    data: top20.map(i => i[0]),
+                    axisLabel: { color: '#fff', rotate: 45, interval: 0 }
+                },
+                yAxis: {
+                    type: 'value',
+                    min: 0,
+                    minInterval: 1,
+                    axisLabel: { color: '#fff' }
+                },
+                series: [{
+                    data: top20.map(i => i[1]),
+                    type: 'bar',
+                    itemStyle: { color: '#3498db' },
+                    label: { show: true, position: 'top', color: '#fff' }
+                }]
+            };
+        } else if (type === 'pie') {
+            opt = {
+                backgroundColor: '#2d3748',
+                tooltip: {
+                    trigger: 'item',
+                    formatter: params => `${top10[params.dataIndex][2]}<br/>被引：${params.value} 次`
+                },
+                legend: {
+                    orient: 'vertical', left: 10, top: 20,
+                    textStyle: { color: '#fff' },
+                    formatter: name => name.length > 12 ? name.slice(0, 12) + '...' : name
+                },
+                series: [{
+                    type: 'pie',
+                    radius: ['40%', '70%'],
+                    center: ['60%', '50%'],
+                    itemStyle: { borderRadius: 6, borderWidth: 2, borderColor: '#2d3748' },
+                    label: { color: '#fff' },
+                    data: top10.map(i => ({ name: i[0], value: i[1] }))
+                }]
+            };
+        } else {
+            const max = Math.max(...top8.map(i => i[1]), 1);
+            opt = {
+                backgroundColor: '#2d3748',
+                tooltip: {
+                    trigger: 'item',
+                    formatter: params => `${top8[params.dataIndex][2]}<br/>被引：${params.value} 次`
+                },
+                radar: {
+                    indicator: top8.map(i => ({ name: i[0], max })),
+                    axisName: { color: '#fff' },
+                    splitNumber: max,
+                    splitArea: { areaStyle: { color: ['rgba(45,55,72,0.2)', 'transparent'] } }
+                },
+                series: [{
+                    type: 'radar',
+                    data: [{ value: top8.map(i => i[1]) }],
+                    areaStyle: { opacity: 0.2 }
+                }]
+            };
+        }
+        citeChart.setOption(opt, true);
+    }
+
+    function renderCurrentChart() {
+        renderChart(currentChartType);
+    }
+
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.onclick = () => {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            renderChart(btn.dataset.chart);
+        };
+    });
+});
+</script>
+
+<style>
+.page-container{max-width:1400px;margin:0 auto;padding:20px;}
+h1{color:#63b3ed;font-size:28px;}
+.stats-row{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;}
+.stats-row .full-width{grid-column:1/-1;}
+.chart-card{background:#2d3748;border-radius:10px;padding:20px;}
+.chart-inner{width:100%;height:400px;}
+.tab-buttons{display:flex;justify-content:center;gap:10px;margin-bottom:10px;}
+.tab-btn{padding:8px 14px;background:#4a5568;color:#fff;border:none;border-radius:6px;cursor:pointer;}
+.tab-btn.active{background:#3498db;}
+h3{color:#fff;text-align:center;}
+</style>
+{% endblock %}

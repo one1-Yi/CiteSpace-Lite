@@ -1,0 +1,196 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="page-container">
+    <h1>🌐 知识网络可视化（作者合作 / 关键词共现）</h1>
+
+    <!-- 标签页切换 -->
+    <div class="tabs">
+        <button class="tab-btn active" data-tab="author">作者合作网络 · 聚类分析</button>
+        <button class="tab-btn" data-tab="kw">关键词共现网络</button>
+    </div>
+
+    <!-- 图表容器 -->
+    <div class="chart-container">
+        <div id="authorChart" class="chart active"></div>
+        <div id="kwChart" class="chart"></div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const filename = localStorage.getItem('filename');
+    if (!filename) {
+        alert('请先在首页上传文献数据！');
+        window.location.href = '/';
+        return;
+    }
+
+    // 初始化图表
+    const authorChart = echarts.init(document.getElementById('authorChart'));
+    const kwChart = echarts.init(document.getElementById('kwChart'));
+
+    // 请求网络数据
+    fetch(`/api/network?f=${encodeURIComponent(filename)}`)
+    .then(res => res.json())
+    .then(data => {
+        // -------------------------- 渲染作者合作网络 --------------------------
+        const authorOption = {
+            tooltip: {
+                show: true,
+                formatter: '{b}<br/>合作次数: {c}'
+            },
+            animationDuration: 1500,
+            animationEasingUpdate: 'quinticInOut',
+            series: [
+                {
+                    type: 'graph',
+                    layout: 'force',
+                    force: {
+                        repulsion: 200,
+                        edgeLength: 120,
+                        gravity: 0.1
+                    },
+                    roam: true,
+                    label: {
+                        show: true,
+                        position: 'inside',
+                        fontSize: 14,
+                        color: '#fff'
+                    },
+                    edgeSymbol: ['none', 'arrow'],
+                    edgeSymbolSize: [0, 8],
+                    edgeLabel: {
+                        fontSize: 12
+                    },
+                    data: data.author_nodes,
+                    links: data.author_links,
+                    lineStyle: {
+                        color: '#63b3ed',
+                        opacity: 0.6,
+                        width: 2,
+                        curveness: 0.3
+                    }
+                }
+            ],
+            backgroundColor: '#2d3748'
+        };
+        authorChart.setOption(authorOption);
+
+        // -------------------------- 渲染关键词共现网络 --------------------------
+        const kwOption = {
+            tooltip: {
+                show: true,
+                formatter: '{b}<br/>共现次数: {c}'
+            },
+            animationDuration: 1500,
+            animationEasingUpdate: 'quinticInOut',
+            series: [
+                {
+                    type: 'graph',
+                    layout: 'force',
+                    force: {
+                        repulsion: 180,
+                        edgeLength: 100,
+                        gravity: 0.1
+                    },
+                    roam: true,
+                    label: {
+                        show: true,
+                        position: 'inside',
+                        fontSize: 14,
+                        color: '#fff'
+                    },
+                    edgeSymbol: ['none', 'arrow'],
+                    edgeSymbolSize: [0, 8],
+                    edgeLabel: {
+                        fontSize: 12
+                    },
+                    data: data.kw_nodes,
+                    links: data.kw_links,
+                    lineStyle: {
+                        color: '#f56565',
+                        opacity: 0.6,
+                        width: 2,
+                        curveness: 0.3
+                    }
+                }
+            ],
+            backgroundColor: '#2d3748'
+        };
+        kwChart.setOption(kwOption);
+    })
+    .catch(err => {
+        console.error('网络数据加载失败:', err);
+        alert('数据加载失败，请检查文件是否正确上传');
+    });
+
+    // 标签页切换逻辑
+    const tabBtns = document.querySelectorAll('.tab-btn');
+    const charts = document.querySelectorAll('.chart');
+
+    tabBtns.forEach(btn => {
+        btn.addEventListener('click', function() {
+            const tab = this.dataset.tab;
+
+            // 切换按钮状态
+            tabBtns.forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+
+            // 切换图表显示
+            charts.forEach(c => c.classList.remove('active'));
+            document.getElementById(tab === 'author' ? 'authorChart' : 'kwChart').classList.add('active');
+
+            // 重新渲染图表
+            if (tab === 'author') {
+                authorChart.resize();
+            } else {
+                kwChart.resize();
+            }
+        });
+    });
+
+    // 自适应窗口大小
+    window.addEventListener('resize', () => {
+        authorChart.resize();
+        kwChart.resize();
+    });
+});
+</script>
+
+<style>
+.page-container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+h1 { color: #63b3ed; font-size: 28px; margin-bottom: 20px; }
+
+/* 标签页样式 */
+.tabs { display: flex; gap: 8px; margin-bottom: 20px; }
+.tab-btn {
+    padding: 12px 24px;
+    background: #2d3748;
+    color: #fff;
+    border: none;
+    border-radius: 8px 8px 0 0;
+    font-size: 18px;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+.tab-btn.active {
+    background: #63b3ed;
+    color: #fff;
+}
+.tab-btn:hover { background: #4a5568; }
+
+/* 图表容器样式 */
+.chart-container {
+    background: #2d3748;
+    border-radius: 0 8px 8px 8px;
+    padding: 20px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+.chart {
+    width: 100%;
+    height: 700px;
+    display: none;
+}
+.chart.active { display: block; }
+</style>
+{% endblock %}

@@ -1,0 +1,6 @@
+
+flask==2.3.3
+pandas==2.1.4
+networkx==3.2.1
+chardet
+werkzeug==2.3.7
